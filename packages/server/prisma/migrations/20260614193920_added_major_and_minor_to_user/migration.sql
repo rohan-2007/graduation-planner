@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "major" TEXT NOT NULL DEFAULT '',
+ADD COLUMN     "minor" TEXT NOT NULL DEFAULT '';
