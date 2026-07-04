@@ -112,37 +112,37 @@
 
 // export default router;
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
-import express, { Request, Response } from "express";
+import express, { Response } from "express";
+import { createAgent } from "langchain";
+import { model } from "../ai/model";
+import { createDegreeAuditTool } from "../ai/tools/degreeAuditTool";
+import { createGeneratePlanTool } from "../ai/tools/generatePlanTool";
+import { createSimulateFailureTool } from "../ai/tools/simulateFailureTool";
+import { AuthRequest } from "../types/authRequest";
+import { authenticate } from "./auth";
 import { langfuse } from "./langfuse";
 
 dotenv.config();
 
 const router = express.Router();
 
-interface ChatbotMessageBody {
-  message: string;
-}
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
-const model = genAI.getGenerativeModel({
-  model: "gemini-3.1-flash-lite",
-});
+// interface ChatbotMessageBody {
+//   message: string;
+// }
 
 /**
  * Extract token usage from Gemini response
  */
-function extractUsage(response: any) {
-  const usage = response?.usageMetadata;
+// function extractUsage(response: any) {
+//   const usage = response?.usageMetadata;
 
-  return {
-    inputTokens: usage?.promptTokenCount || 0,
-    outputTokens: usage?.candidatesTokenCount || 0,
-    totalTokens: usage?.totalTokenCount || 0,
-  };
-}
+//   return {
+//     inputTokens: usage?.promptTokenCount || 0,
+//     outputTokens: usage?.candidatesTokenCount || 0,
+//     totalTokens: usage?.totalTokenCount || 0,
+//   };
+// }
 
 router.get("/lf-test", async (_req, res) => {
   const trace = langfuse.trace({
@@ -158,143 +158,162 @@ router.get("/lf-test", async (_req, res) => {
   res.json({ trace_id: trace.id });
 });
 
-router.post(
-  "/send",
-  // authenticate,
-  async (req: Request<unknown, unknown, ChatbotMessageBody>, res: Response) => {
-    const startTime = Date.now();
-    const { message } = req.body;
+router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
+  const startTime = Date.now();
+  const { message } = req.body;
+  const studentId = Number(req.user!.userId);
 
-    if (!message) {
-      return res.status(400).json({ error: "Message is required" });
-    }
+  if (!message) {
+    return res.status(400).json({ error: "Message is required" });
+  }
+
+  const agent = createAgent({
+    model: model,
+    tools: [
+      createGeneratePlanTool(studentId),
+      createDegreeAuditTool(studentId),
+      createSimulateFailureTool(studentId),
+    ],
+  });
+
+  /**
+   * =========================
+   * ROOT TRACE (same concept)
+   * =========================
+   */
+  const trace = langfuse.trace({
+    name: "chat_completion",
+    input: message,
+    metadata: {
+      application_version_id: "a84b83ea-069d-4e00-9b93-fc706ba12ba4",
+    },
+  });
+
+  /**
+   * =========================
+   * OBSERVATION (matches Python)
+   * as_type="generation"
+   * =========================
+   */
+  const generation = trace.generation({
+    name: req.body.message ? "chat-generation" : "empty",
+    // traceId: trace.id, // equivalent to trace_context.trace_id
+    input: message,
+    model: "gemini-2.5-flash",
+  });
+
+  try {
+    // const chat = model.startChat({ history: [] });
+
+    // const result = await chat.sendMessage(message);
+    const result = await agent.invoke({
+      messages: [
+        {
+          role: "user",
+          content: message,
+        },
+      ],
+    });
+
+    const response = result.messages.at(-1);
+
+    const text =
+      typeof response?.content === "string"
+        ? response.content
+        : JSON.stringify(response?.content);
+
+    // const usage = extractUsage(response);
+
+    const latencyMs = Date.now() - startTime;
 
     /**
      * =========================
-     * ROOT TRACE (same concept)
+     * observation.update(...)
      * =========================
      */
-    const trace = langfuse.trace({
-      name: "chat_completion",
+    generation.update({
       input: message,
+      output: text,
+      model: "gemini-2.5-flash",
+
       metadata: {
-        application_version_id: "a84b83ea-069d-4e00-9b93-fc706ba12ba4",
+        latency_ms: latencyMs,
+        project_id: "support-agent",
+        status: "success",
+        error_message: null,
+      },
+
+      // usageDetails: {
+      //   input: usage.inputTokens,
+      //   output: usage.outputTokens,
+      // },
+    });
+
+    /**
+     * Optional trace enrichment
+     */
+    trace.update({
+      output: text,
+      metadata: {
+        latency_ms: latencyMs,
+        status: "success",
+        project_id: "support-agent",
+        // usage: {
+        //   input: usage.inputTokens,
+        //   output: usage.outputTokens,
+        // },
       },
     });
 
+    await langfuse.flush();
+
+    return res.status(200).json({
+      response: text,
+      trace_id: trace.id,
+    });
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+
+    const errMsg = error instanceof Error ? error.message : String(error);
+
     /**
      * =========================
-     * OBSERVATION (matches Python)
-     * as_type="generation"
+     * ERROR observation update
      * =========================
      */
-    const generation = trace.generation({
-      name: req.body.message ? "chat-generation" : "empty",
-      // traceId: trace.id, // equivalent to trace_context.trace_id
+    generation.update({
       input: message,
+      output: null,
       model: "gemini-2.5-flash",
+
+      metadata: {
+        latency_ms: latencyMs,
+        project_id: "support-agent",
+        status: "error",
+        error_message: errMsg,
+      },
+
+      usageDetails: {
+        input_tokens: 0,
+        output_tokens: 0,
+      },
     });
 
-    try {
-      const chat = model.startChat({ history: [] });
+    trace.update({
+      metadata: {
+        status: "error",
+        error_message: errMsg,
+        latency_ms: latencyMs,
+      },
+    });
 
-      const result = await chat.sendMessage(message);
-      const response = await result.response;
+    await langfuse.flush();
 
-      const text = response.text();
-      const usage = extractUsage(response);
-
-      const latencyMs = Date.now() - startTime;
-
-      /**
-       * =========================
-       * observation.update(...)
-       * =========================
-       */
-      generation.update({
-        input: message,
-        output: text,
-        model: "gemini-2.5-flash",
-
-        metadata: {
-          latency_ms: latencyMs,
-          project_id: "support-agent",
-          status: "success",
-          error_message: null,
-        },
-
-        usageDetails: {
-          input: usage.inputTokens,
-          output: usage.outputTokens,
-        },
-      });
-
-      /**
-       * Optional trace enrichment
-       */
-      trace.update({
-        output: text,
-        metadata: {
-          latency_ms: latencyMs,
-          status: "success",
-          project_id: "support-agent",
-          usage: {
-            input: usage.inputTokens,
-            output: usage.outputTokens,
-          },
-        },
-      });
-
-      await langfuse.flush();
-
-      return res.status(200).json({
-        response: text,
-        trace_id: trace.id,
-      });
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-
-      const errMsg = error instanceof Error ? error.message : String(error);
-
-      /**
-       * =========================
-       * ERROR observation update
-       * =========================
-       */
-      generation.update({
-        input: message,
-        output: null,
-        model: "gemini-2.5-flash",
-
-        metadata: {
-          latency_ms: latencyMs,
-          project_id: "support-agent",
-          status: "error",
-          error_message: errMsg,
-        },
-
-        usageDetails: {
-          input_tokens: 0,
-          output_tokens: 0,
-        },
-      });
-
-      trace.update({
-        metadata: {
-          status: "error",
-          error_message: errMsg,
-          latency_ms: latencyMs,
-        },
-      });
-
-      await langfuse.flush();
-
-      return res.status(500).json({
-        error: errMsg,
-        trace_id: trace.id,
-      });
-    }
-  },
-);
+    return res.status(500).json({
+      error: errMsg,
+      trace_id: trace.id,
+    });
+  }
+});
 
 export default router;
