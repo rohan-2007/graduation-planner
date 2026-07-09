@@ -8,6 +8,12 @@ generator client {
   output = "../generated/prisma"
 }
 
+enum Semester {
+  SPRING
+  AUTUMN
+  SUMMER
+}
+
 model User {
   id                  Int         @id @default(autoincrement())
   username            String
@@ -16,7 +22,9 @@ model User {
   major               String      @default("")
   minor               String      @default("")
   gradYear            Int
+  gradSemester        Semester    @default(SPRING)
   completedCourses    String[]    @default([])
+  currentCourses      String[]    @default([])
   requiredCourses     String[]    @default([])
 }
 
@@ -27,4 +35,12 @@ model Course {
   credits             Float
   school              String
   prerequisiteCodes   String[]
+}
+
+model Conversation {
+  id                  String    @id @default(uuid())
+  studentId           Int
+  title               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }

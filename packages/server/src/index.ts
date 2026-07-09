@@ -14,12 +14,18 @@ import {
 } from "./graduationPlanner/graph";
 import aiRouter from "./routes/ai";
 import authRouter from "./routes/auth";
+import conversationRouter from "./routes/conversation";
 import { degreeAudit } from "./services/degreeAuditService";
 import { generateStudentPlan } from "./services/plannerService";
 import { simulateFailure } from "./services/simulationService";
 
 type completedCourseBody = {
   courseCode: string;
+  userId: number;
+};
+
+type requiredAndCurrentCoursesBody = {
+  courseCodes: string[];
   userId: number;
 };
 
@@ -78,6 +84,7 @@ app.use(sessionMiddleware);
 
 app.use("/auth", authRouter);
 app.use("/chat", aiRouter);
+app.use("/conversation", conversationRouter);
 
 app.listen(portNumber, () => {
   console.log(`Server running on port ${portNumber}`);
@@ -152,6 +159,95 @@ app.post(
       where: { id: userId },
       data: {
         completedCourses: [...existingUser.completedCourses, courseCode],
+      },
+    });
+
+    res.status(200).json({
+      updatedUser: updatedUser,
+    });
+    return;
+  },
+);
+
+app.post(
+  "/add_required_courses",
+  async (
+    req: Request<unknown, unknown, requiredAndCurrentCoursesBody>,
+    res,
+  ) => {
+    const { courseCodes, userId } = req.body;
+
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!existingUser) {
+      res.status(404).json({
+        error: "Account does not exist",
+      });
+      return;
+    }
+
+    if (
+      courseCodes
+        .map((courseCode) => existingUser.requiredCourses.includes(courseCode))
+        .includes(true)
+    ) {
+      res.status(409).json({
+        message:
+          "One or more courses are already in this student's graduation requirements.",
+      });
+      return;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        requiredCourses: [...existingUser.requiredCourses, ...courseCodes],
+      },
+    });
+
+    res.status(200).json({
+      updatedUser: updatedUser,
+    });
+    return;
+  },
+);
+
+app.post(
+  "/add_current_courses",
+  async (
+    req: Request<unknown, unknown, requiredAndCurrentCoursesBody>,
+    res,
+  ) => {
+    const { courseCodes, userId } = req.body;
+
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!existingUser) {
+      res.status(404).json({
+        error: "Account does not exist",
+      });
+      return;
+    }
+
+    if (
+      courseCodes
+        .map((courseCode) => existingUser.currentCourses.includes(courseCode))
+        .includes(true)
+    ) {
+      res.status(409).json({
+        message: "One or more courses are already being taken by this student.",
+      });
+      return;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        currentCourses: [...existingUser.currentCourses, ...courseCodes],
       },
     });
 

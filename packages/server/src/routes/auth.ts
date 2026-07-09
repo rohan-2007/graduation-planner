@@ -34,6 +34,7 @@ export function authenticate(
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
+    console.log("Missing token");
     res.status(401).json({
       error: "Missing token",
     });
