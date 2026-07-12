@@ -114,11 +114,7 @@
 
 import dotenv from "dotenv";
 import express, { Response } from "express";
-import { createAgent } from "langchain";
-import { model } from "../ai/model";
-import { createDegreeAuditTool } from "../ai/tools/degreeAuditTool";
-import { createGeneratePlanTool } from "../ai/tools/generatePlanTool";
-import { createSimulateFailureTool } from "../ai/tools/simulateFailureTool";
+import { createGradAssistantAgent } from "../ai/agent";
 import { AuthRequest } from "../types/authRequest";
 import { authenticate } from "./auth";
 import { langfuse } from "./langfuse";
@@ -160,26 +156,19 @@ router.get("/lf-test", async (_req, res) => {
 
 router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
-  const { message } = req.body;
+  const { message, conversationId } = req.body;
   const studentId = Number(req.user!.userId);
 
   if (!message) {
     return res.status(400).json({ error: "Message is required" });
   }
 
-  const agent = createAgent({
-    model: model,
-    tools: [
-      createGeneratePlanTool(studentId),
-      createDegreeAuditTool(studentId),
-      createSimulateFailureTool(studentId),
-    ],
-  });
+  const agent = createGradAssistantAgent(studentId);
 
   /**
-   * =========================
-   * ROOT TRACE (same concept)
-   * =========================
+   * ==========
+   * ROOT TRACE
+   * ==========
    */
   const trace = langfuse.trace({
     name: "chat_completion",
@@ -190,10 +179,9 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
   });
 
   /**
-   * =========================
-   * OBSERVATION (matches Python)
-   * as_type="generation"
-   * =========================
+   * ===========
+   * OBSERVATION
+   * ===========
    */
   const generation = trace.generation({
     name: req.body.message ? "chat-generation" : "empty",
@@ -206,14 +194,21 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
     // const chat = model.startChat({ history: [] });
 
     // const result = await chat.sendMessage(message);
-    const result = await agent.invoke({
-      messages: [
-        {
-          role: "user",
-          content: message,
+    const result = await agent.invoke(
+      {
+        messages: [
+          {
+            role: "user",
+            content: message,
+          },
+        ],
+      },
+      {
+        configurable: {
+          thread_id: conversationId,
         },
-      ],
-    });
+      },
+    );
 
     const response = result.messages.at(-1);
 

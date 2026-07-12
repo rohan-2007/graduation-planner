@@ -1,7 +1,7 @@
 import { BACKEND_BASE_URL } from "@/config/api";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import type { semesterPlan } from "../../../server/src/services/graduationPlanner/scheduler";
+import type { semesterPlan } from "../../../server/src/graduationPlanner/scheduler";
 import { useAuth } from "../auth/AuthContext";
 
 export default function Plan() {
@@ -38,12 +38,12 @@ export default function Plan() {
       <View style={styles.outerDiv}>
         <Text style={styles.heading}>Graduation Plan</Text>
 
-        {plan.map((semesterPlan) => (
-          <View style={styles.semesterDiv}>
+        {plan.map((semesterPlan, i) => (
+          <View key={i} style={styles.semesterDiv}>
             <Text>Semester {semesterPlan.semester}</Text>
             <View style={styles.coursesBlock}>
-              {semesterPlan.courses.map((course) => (
-                <Text>{course.code}</Text>
+              {semesterPlan.courses.map((course, index) => (
+                <Text key={index}>{course.code}</Text>
               ))}
             </View>
           </View>

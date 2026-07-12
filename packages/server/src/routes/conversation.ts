@@ -1,6 +1,9 @@
 import { AuthRequest } from "@/types/authRequest";
 import express from "express";
-import { createNewConversation } from "../services/conversationService";
+import {
+  createNewConversation,
+  getAllConversations,
+} from "../services/conversationService";
 import { authenticate } from "./auth";
 
 const conversationRouter = express.Router();
@@ -37,5 +40,25 @@ conversationRouter.post(
     }
   },
 );
+
+conversationRouter.get("/conversations", authenticate, async (_req, res) => {
+  try {
+    const conversations = await getAllConversations();
+
+    res.status(200).json(conversations);
+    return;
+  } catch (error) {
+    if (error instanceof Error) {
+      res.status(500).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: String(error),
+    });
+  }
+});
 
 export default conversationRouter;

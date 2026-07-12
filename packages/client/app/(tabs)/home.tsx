@@ -1,14 +1,39 @@
 import { BACKEND_BASE_URL } from "@/config/api";
-import { useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Button, StyleSheet, Text, TextInput, View } from "react-native";
 import Toast from "react-native-toast-message";
 import { ConversationPane } from "../../components/conversationsPane";
 import { useAuth } from "../auth/AuthContext";
 
+interface ChatbotResponseBody {
+  response: string;
+  trace_id?: string;
+  error?: string;
+}
+
+interface NewConversationResponseBody {
+  conversation: string;
+}
+
+export type Conversation = {
+  id: string;
+  studentId: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+interface ConversationsResponseBody {
+  conversations: Conversation[];
+}
+
 export default function Home() {
   const { accessToken, user } = useAuth();
 
   const [isOpen, setIsOpen] = useState<boolean>(false);
+
+  // const [conversationId, setConversationId] = useState<String | null>(null);
 
   const onClose = () => {
     setIsOpen(false);
@@ -20,19 +45,68 @@ export default function Home() {
 
   // const isWeb = Platform.OS === "web";
 
-  const HOST = "LAPTOP-L6VTOSI4";
+  // const HOST = "LAPTOP-L6VTOSI4";
 
-  interface ChatbotResponseBody {
-    response: string;
-    trace_id?: string;
-    error?: string;
-  }
+  const params = useLocalSearchParams();
+
+  const conversationId = Array.isArray(params.conversationId)
+    ? params.conversationId[0]
+    : params.conversationId;
+
+  console.log("conversationId localsearchparams: ", conversationId);
 
   const [chatMessageData, setChatMessageData] = useState({
     message: "",
+    conversationId: "",
   });
 
+  useEffect(() => {
+    setChatMessageData((prev) => ({
+      ...prev,
+      conversationId: conversationId,
+    }));
+  }, [conversationId]);
+
+  console.log(
+    "conversationId chatMessageData: ",
+    chatMessageData.conversationId,
+  );
+
   const [chatResponse, setChatResponse] = useState("");
+
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  useEffect(() => {
+    const fetchConversations = async () => {
+      const conversations = await fetch(
+        `${BACKEND_BASE_URL}/conversation/conversations`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            authorization: `Bearer ${accessToken}`,
+          },
+          // credentials: "include",
+          method: "GET",
+        },
+      );
+
+      const conversationsJson: ConversationsResponseBody =
+        await conversations.json();
+
+      const conversationsList = conversationsJson.conversations;
+
+      setConversations(conversationsList);
+
+      if (!conversationId) {
+        setChatMessageData((prev) => ({
+          ...prev,
+          conversationId: conversationsList[0].id,
+        }));
+      }
+    };
+
+    fetchConversations();
+  }, [chatMessageData.conversationId]);
 
   const handleInputChange = (name: string, value: string) => {
     setChatMessageData((prev) => ({
@@ -72,8 +146,39 @@ export default function Home() {
 
   const sendMessage = async () => {
     try {
+      let conversationId = chatMessageData.conversationId;
+
+      if (conversationId == "") {
+        const newConversation = await fetch(
+          `${BACKEND_BASE_URL}/conversation/new_conversation`,
+          {
+            body: JSON.stringify({
+              title: "Untitled Conversation",
+            }),
+            headers: {
+              "Content-Type": "application/json",
+              authorization: `Bearer ${accessToken}`,
+            },
+            credentials: "include",
+            method: "POST",
+          },
+        );
+
+        const newConversationJson: NewConversationResponseBody =
+          await newConversation.json();
+
+        conversationId = newConversationJson.conversation;
+
+        setChatMessageData((prev) => ({
+          ...prev,
+          conversationId: newConversationJson.conversation,
+        }));
+      }
       const response = await fetch(`${BACKEND_BASE_URL}/chat/send`, {
-        body: JSON.stringify(chatMessageData),
+        body: JSON.stringify({
+          message: chatMessageData.message,
+          conversationId,
+        }),
         headers: {
           "Content-Type": "application/json",
           authorization: `Bearer ${accessToken}`,
@@ -152,6 +257,8 @@ export default function Home() {
           <ConversationPane
             isOpen={isOpen}
             onClose={onClose}
+            conversations={conversations}
+            selectedConversationId={chatMessageData.conversationId}
             // style={stylesheet.conversationPane}
           />
         </View>

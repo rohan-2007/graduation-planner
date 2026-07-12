@@ -7,6 +7,7 @@ import cors from "cors";
 import express, { Request } from "express";
 import session from "express-session";
 import { PrismaClient } from "../generated/prisma";
+import { initializeCheckpointer } from "./ai/checkpointer";
 import {
   buildGraph,
   createDummyCourses,
@@ -86,9 +87,14 @@ app.use("/auth", authRouter);
 app.use("/chat", aiRouter);
 app.use("/conversation", conversationRouter);
 
-app.listen(portNumber, () => {
-  console.log(`Server running on port ${portNumber}`);
-});
+async function start() {
+  await initializeCheckpointer();
+  app.listen(portNumber, () => {
+    console.log(`Server running on port ${portNumber}`);
+  });
+}
+
+start();
 
 app.get("/", (_req, res) => {
   console.log("hello");

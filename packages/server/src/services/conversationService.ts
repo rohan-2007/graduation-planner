@@ -27,3 +27,11 @@ export const createNewConversation = async (
     conversation: newConversation.id,
   };
 };
+
+export const getAllConversations = async () => {
+  const allConversations = await prisma.conversation.findMany();
+
+  return {
+    conversations: allConversations,
+  };
+};
