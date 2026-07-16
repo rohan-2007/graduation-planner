@@ -191,10 +191,17 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
   });
 
   try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
     // const chat = model.startChat({ history: [] });
 
     // const result = await chat.sendMessage(message);
-    const result = await agent.invoke(
+
+    let response = "";
+
+    const stream = await agent.stream(
       {
         messages: [
           {
@@ -207,15 +214,46 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
         configurable: {
           thread_id: conversationId,
         },
+        streamMode: "messages",
       },
     );
 
-    const response = result.messages.at(-1);
+    for await (const chunk of stream) {
+      response = response + chunk[0].content;
+      const chunk_content = chunk[0].content;
+      // if (chunk_content.at(-1) != " ") {
+      //   res.write(chunk[0].content + " ");
+      // } else {
+      //   res.write(chunk[0].content);
+      // }
+      res.write(chunk_content);
+      // console.log("chunk: ", chunk[0].content);
+    }
 
-    const text =
-      typeof response?.content === "string"
-        ? response.content
-        : JSON.stringify(response?.content);
+    // res.write("data: [END]\n\n");
+    res.end();
+
+    // for await (const chunk of stream) {
+    //   if (
+    //     "messages" in
+    //     (chunk["params"]["data"] as Record<
+    //       string,
+    //       string | number | Record<string, string>
+    //     >)
+    //   ) {
+    //     const chunk_data = chunk["params"]["data"] as Record<
+    //       string,
+    //       string | number | Record<string, string>
+    //     >;
+    //     console.log("chunk: ", chunk_data["messages"]["content"] as string);
+    //   }
+    //   response = response + chunk;
+    // }
+
+    // const text =
+    //   typeof response?.content === "string"
+    //     ? response.content
+    //     : JSON.stringify(response?.content);
 
     // const usage = extractUsage(response);
 
@@ -228,7 +266,7 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
      */
     generation.update({
       input: message,
-      output: text,
+      // output: text,
       model: "gemini-2.5-flash",
 
       metadata: {
@@ -248,7 +286,7 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
      * Optional trace enrichment
      */
     trace.update({
-      output: text,
+      // output: text,
       metadata: {
         latency_ms: latencyMs,
         status: "success",
@@ -262,10 +300,11 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
 
     await langfuse.flush();
 
-    return res.status(200).json({
-      response: text,
-      trace_id: trace.id,
-    });
+    // res.status(200).json({
+    //   // response: text,
+    //   trace_id: trace.id,
+    // });
+    return;
   } catch (error) {
     const latencyMs = Date.now() - startTime;
 
@@ -304,10 +343,11 @@ router.post("/send", authenticate, async (req: AuthRequest, res: Response) => {
 
     await langfuse.flush();
 
-    return res.status(500).json({
-      error: errMsg,
-      trace_id: trace.id,
-    });
+    // return res.status(500).json({
+    //   error: errMsg,
+    //   trace_id: trace.id,
+    // });
+    return;
   }
 });
 

@@ -43,6 +43,10 @@ export default function Home() {
     setIsOpen(true);
   };
 
+  const sleep = (ms: number) => {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  };
+
   // const isWeb = Platform.OS === "web";
 
   // const HOST = "LAPTOP-L6VTOSI4";
@@ -53,7 +57,7 @@ export default function Home() {
     ? params.conversationId[0]
     : params.conversationId;
 
-  console.log("conversationId localsearchparams: ", conversationId);
+  // console.log("conversationId localsearchparams: ", conversationId);
 
   const [chatMessageData, setChatMessageData] = useState({
     message: "",
@@ -67,14 +71,41 @@ export default function Home() {
     }));
   }, [conversationId]);
 
-  console.log(
-    "conversationId chatMessageData: ",
-    chatMessageData.conversationId,
-  );
+  // console.log(
+  //   "conversationId chatMessageData: ",
+  //   chatMessageData.conversationId,
+  // );
 
   const [chatResponse, setChatResponse] = useState("");
 
+  const [thinkingDots, setThinkingDots] = useState("");
+
+  const [isThinking, setIsThinking] = useState(false);
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  useEffect(() => {
+    const showThinkingDots = async () => {
+      if (!isThinking) return;
+
+      var counter = 1;
+      while (isThinking) {
+        // console.log("eeee");
+        if (counter == 4) {
+          counter = 1;
+        }
+        let dotsString = "";
+        for (let i = 0; i < counter; i++) {
+          dotsString += ".";
+        }
+        setThinkingDots(dotsString);
+        await sleep(50);
+        counter++;
+      }
+    };
+
+    showThinkingDots();
+  }, [isThinking]);
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -146,6 +177,8 @@ export default function Home() {
 
   const sendMessage = async () => {
     try {
+      setIsThinking(true);
+
       let conversationId = chatMessageData.conversationId;
 
       if (conversationId == "") {
@@ -187,22 +220,64 @@ export default function Home() {
         method: "POST",
       });
 
-      const resJson: ChatbotResponseBody = await response.json();
+      // const resJson: ChatbotResponseBody = await response.json();
+
+      // Reset message box
+      setChatMessageData((prev) => ({
+        ...prev,
+        message: "",
+      }));
+
+      // Stop thinking
+      setIsThinking(false);
+
+      console.log("Response body: ", response.body);
+
+      const reader = response.body?.getReader();
+
+      const decoder = new TextDecoder();
+
+      let text = "";
+
+      console.log("aa");
+
+      if (reader) {
+        console.log("bb");
+        while (true) {
+          console.log("cc");
+          const { value, done } = await reader.read();
+
+          console.log("before");
+          console.log("value: ", decoder.decode(value));
+          console.log("done", done);
+          console.log("after");
+
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          console.log("chunk: ", chunk);
+          for (const char of chunk) {
+            text += char;
+            sleep(500);
+            setChatResponse(text);
+          }
+        }
+      }
 
       if (!response.ok) {
         Toast.show({
           type: "error",
           text1: "Error",
-          text2: resJson.error,
+          // text2: response.error,
         });
       } else {
-        setChatResponse(resJson.response);
+        // setChatResponse(resJson.response);
         Toast.show({
           type: "success",
           text1: "Response successful",
-          text2: resJson.trace_id,
+          // text2: resJson.trace_id,
         });
-        console.log("trace id: ", resJson.trace_id);
+        // console.log("trace id: ", resJson.trace_id);
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -246,7 +321,23 @@ export default function Home() {
         />
         <Button title="Submit" onPress={() => sendMessage()} />
         <View>
-          <Text>{chatResponse}</Text>
+          <Text>
+            {chatResponse}
+            {chatResponse == "" && (
+              <>
+                <View style={stylesheet.emojiDiv}>
+                  {isThinking && (
+                    <View>
+                      <Text>🎓</Text>
+                      <Text>🤔</Text>
+                    </View>
+                  )}
+                  <Text>{thinkingDots}</Text>
+                </View>
+              </>
+            )}
+            {chatResponse != "" && <Text>|</Text>}
+          </Text>
         </View>
         <View style={stylesheet.conversationsButtonView}>
           <Button title="Conversations" onPress={() => open()} />
@@ -303,5 +394,8 @@ export const stylesheet = StyleSheet.create({
     width: "15%",
     borderRadius: "10px",
     backgroundColor: "lightgreen",
+  },
+  emojiDiv: {
+    flexDirection: "row",
   },
 });
